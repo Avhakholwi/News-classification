@@ -10,7 +10,6 @@ import streamlit as st
 # PAGE CONFIGURATION
 # ==============================
 st.set_page_config(page_title="News Classifier", page_icon="📰")
-
 st.title("📰 News Category Classifier")
 
 # ==============================
@@ -59,6 +58,7 @@ def load_models():
 
         models['categories'] = models['label_encoder'].classes_.tolist()
         models['trained'] = True
+        st.success(f"✅ Loaded {len(models['categories'])} categories successfully!")
         return models
     except Exception as e:
         st.error(f"Error loading models: {e}")
@@ -78,6 +78,11 @@ with st.sidebar:
     confidence_threshold = st.slider(
         "Minimum confidence:",
         0.0, 1.0, 0.5, 0.05
+    )
+    input_method = st.radio(
+        "Input Method:",
+        ["Type/Paste", "Upload CSV"],
+        index=0
     )
 
 # ==============================
@@ -115,16 +120,66 @@ def predict_article(text, model_choice, models, confidence_threshold):
 # ==============================
 # MAIN APP
 # ==============================
-st.subheader("📝 Enter Article Text")
-user_input = st.text_area("Paste or type your article text here:", height=200)
+if input_method == "Type/Paste":
+    st.subheader("📝 Enter Article Text")
+    user_input = st.text_area("Paste or type your article text here:", height=200)
 
-if st.button("🔍 Classify Article"):
-    if models.get('trained', False) and user_input.strip():
-        with st.spinner("Classifying..."):
-            category, confidence, model_used = predict_article(
-                user_input, model_choice, models, confidence_threshold
-            )
-            st.success(f"Predicted Category ({model_used}): {category}")
-            st.metric("Confidence", f"{confidence:.1%}")
-    else:
-        st.error("Models not loaded or no text provided.")
+    if st.button("🔍 Classify Article"):
+        if models.get('trained', False) and user_input.strip():
+            with st.spinner("Classifying..."):
+                category, confidence, model_used = predict_article(
+                    user_input, model_choice, models, confidence_threshold
+                )
+                st.success(f"Predicted Category ({model_used}): {category}")
+                st.metric("Confidence", f"{confidence:.1%}")
+        else:
+            st.error("Models not loaded or no text provided.")
+
+else:  # Upload CSV
+    st.subheader("📂 Upload CSV File")
+    st.markdown("Upload a CSV file with a `text` column containing news articles.")
+
+    uploaded_file = st.file_uploader("Choose a CSV file", type=['csv'])
+
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+
+            if 'text' not in df.columns:
+                st.error("CSV must contain a 'text' column.")
+            else:
+                st.success(f"Loaded {len(df)} articles.")
+                st.dataframe(df.head())
+
+                if st.button("🔍 Classify All Articles"):
+                    if models.get('trained', False):
+                        with st.spinner("Classifying articles..."):
+                            results = []
+                            for text in df['text']:
+                                result = predict_article(text, model_choice, models, 0.0)
+                                if result:
+                                    category, confidence, model_used = result
+                                    results.append({
+                                        'text': text[:200] + '...' if len(text) > 200 else text,
+                                        'category': category,
+                                        'confidence': f"{confidence:.1%}",
+                                        'model': model_used
+                                    })
+
+                            result_df = pd.DataFrame(results)
+
+                        st.subheader("📊 Classification Results")
+                        st.dataframe(result_df)
+
+                        # Download button
+                        csv = result_df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Results as CSV",
+                            data=csv,
+                            file_name="classified_articles.csv",
+                            mime="text/csv"
+                        )
+                    else:
+                        st.error("Models not loaded.")
+        except Exception as e:
+            st.error(f"Error reading CSV file: {e}")
